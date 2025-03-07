@@ -1,6 +1,8 @@
 import pygame
 import sys
 import random
+import math
+import time
 
 # Initialize pygame
 pygame.init()
@@ -8,16 +10,18 @@ pygame.init()
 # Constants
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-PLAYER_WIDTH = 50
-PLAYER_HEIGHT = 100
-BALL_RADIUS = 15
+PLAYER_BOTTOM_RADIUS = 30
+PLAYER_TOP_RADIUS = 20
+PLAYER_HEIGHT = PLAYER_BOTTOM_RADIUS + PLAYER_TOP_RADIUS  # Total height
+BALL_RADIUS = 25
 NET_WIDTH = 10
 NET_HEIGHT = 300
 GRAVITY = 0.5
 JUMP_FORCE = -15
-PLAYER_SPEED = 5
-BALL_SPEED = 7
+PLAYER_SPEED = 6.25  # 1.25x faster
+BALL_SPEED = 5.25  # 0.75x slower
 WINNING_SCORE = 21
+GOAL_TIMEOUT = 1000  # 1 second in milliseconds
 
 # Colors
 WHITE = (255, 255, 255)
@@ -40,8 +44,10 @@ class Player:
     def __init__(self, x, y, color, is_left_player):
         self.x = x
         self.y = y
-        self.width = PLAYER_WIDTH
+        self.bottom_radius = PLAYER_BOTTOM_RADIUS
+        self.top_radius = PLAYER_TOP_RADIUS
         self.height = PLAYER_HEIGHT
+        self.width = PLAYER_BOTTOM_RADIUS * 2  # Width is diameter of bottom circle
         self.color = color
         self.vel_y = 0
         self.is_jumping = False
@@ -55,16 +61,16 @@ class Player:
         # Boundary checks
         if self.is_left_player:
             # Left player can't go beyond the net or left screen edge
-            if self.x < 0:
-                self.x = 0
-            elif self.x > SCREEN_WIDTH // 2 - NET_WIDTH // 2 - self.width:
-                self.x = SCREEN_WIDTH // 2 - NET_WIDTH // 2 - self.width
+            if self.x - self.bottom_radius < 0:
+                self.x = self.bottom_radius
+            elif self.x + self.bottom_radius > SCREEN_WIDTH // 2 - NET_WIDTH // 2:
+                self.x = SCREEN_WIDTH // 2 - NET_WIDTH // 2 - self.bottom_radius
         else:
             # Right player can't go beyond the net or right screen edge
-            if self.x < SCREEN_WIDTH // 2 + NET_WIDTH // 2:
-                self.x = SCREEN_WIDTH // 2 + NET_WIDTH // 2
-            elif self.x > SCREEN_WIDTH - self.width:
-                self.x = SCREEN_WIDTH - self.width
+            if self.x - self.bottom_radius < SCREEN_WIDTH // 2 + NET_WIDTH // 2:
+                self.x = SCREEN_WIDTH // 2 + NET_WIDTH // 2 + self.bottom_radius
+            elif self.x + self.bottom_radius > SCREEN_WIDTH:
+                self.x = SCREEN_WIDTH - self.bottom_radius
     
     def jump(self):
         if not self.is_jumping:
@@ -77,13 +83,27 @@ class Player:
         self.y += self.vel_y
         
         # Check if player is on the ground
-        if self.y > SCREEN_HEIGHT - self.height:
-            self.y = SCREEN_HEIGHT - self.height
+        if self.y + self.bottom_radius > SCREEN_HEIGHT:
+            self.y = SCREEN_HEIGHT - self.bottom_radius
             self.vel_y = 0
             self.is_jumping = False
     
     def draw(self):
-        pygame.draw.rect(screen, self.color, (self.x, self.y, self.width, self.height))
+        # Draw bottom circle (larger)
+        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.bottom_radius)
+        
+        # Draw top circle (smaller) - positioned on top of the bottom circle
+        top_y = self.y - self.bottom_radius - self.top_radius + 5  # +5 for slight overlap
+        pygame.draw.circle(screen, self.color, (int(self.x), int(top_y)), self.top_radius)
+        
+        # Draw eyes (small white circles with black pupils)
+        eye_y = top_y - 5
+        # Left eye
+        pygame.draw.circle(screen, WHITE, (int(self.x - 7), int(eye_y)), 5)
+        pygame.draw.circle(screen, BLACK, (int(self.x - 7), int(eye_y)), 2)
+        # Right eye
+        pygame.draw.circle(screen, WHITE, (int(self.x + 7), int(eye_y)), 5)
+        pygame.draw.circle(screen, BLACK, (int(self.x + 7), int(eye_y)), 2)
 
 class Ball:
     def __init__(self):
@@ -115,6 +135,13 @@ class Ball:
                 player2.score += 1
             else:
                 player1.score += 1
+                
+            # Show goal message
+            show_goal_message(player1, player2)
+            
+            # Wait for timeout
+            pygame.time.delay(GOAL_TIMEOUT)
+            
             self.reset()
             return
         
@@ -150,31 +177,32 @@ class Ball:
         self.check_player_collision(player2)
     
     def check_player_collision(self, player):
-        # Check if ball collides with player
-        if (self.x + BALL_RADIUS > player.x and self.x - BALL_RADIUS < player.x + player.width and
-            self.y + BALL_RADIUS > player.y and self.y - BALL_RADIUS < player.y + player.height):
+        # Check if ball collides with player's bottom circle
+        bottom_circle_dist = ((self.x - player.x)**2 + (self.y - player.y)**2)**0.5
+        if bottom_circle_dist < BALL_RADIUS + player.bottom_radius:
             
-            # Determine collision side
-            dx = (self.x - (player.x + player.width / 2)) / (player.width / 2)
-            dy = (self.y - (player.y + player.height / 2)) / (player.height / 2)
+            # Determine collision angle
+            dx = self.x - player.x
+            dy = self.y - player.y
+            angle = math.atan2(dy, dx)
+            
+            # Set new position outside of collision
+            self.x = player.x + math.cos(angle) * (BALL_RADIUS + player.bottom_radius)
+            self.y = player.y + math.sin(angle) * (BALL_RADIUS + player.bottom_radius)
             
             # Determine bounce direction based on collision angle
-            if abs(dx) > abs(dy):
-                # Horizontal collision
-                if dx > 0:
-                    self.x = player.x + player.width + BALL_RADIUS
+            # Horizontal component
+            if abs(math.cos(angle)) > 0.5:  # If hit from sides
+                if math.cos(angle) > 0:  # Hit from left
                     self.vel_x = abs(self.vel_x) + random.uniform(0, 2)
-                else:
-                    self.x = player.x - BALL_RADIUS
+                else:  # Hit from right
                     self.vel_x = -abs(self.vel_x) - random.uniform(0, 2)
-            else:
-                # Vertical collision
-                if dy > 0:
-                    self.y = player.y + player.height + BALL_RADIUS
-                    self.vel_y = abs(self.vel_y)
-                else:
-                    self.y = player.y - BALL_RADIUS
-                    self.vel_y = -abs(self.vel_y) - 5  # Extra upward force when hit from top
+            
+            # Vertical component
+            if math.sin(angle) < -0.5:  # Hit from below
+                self.vel_y = -abs(self.vel_y) - 5  # Extra upward force when hit from top
+            elif math.sin(angle) > 0.5:  # Hit from above
+                self.vel_y = abs(self.vel_y)
             
             # Add some randomness to make the game more interesting
             self.vel_x += random.uniform(-1, 1)
@@ -226,6 +254,20 @@ def draw_scores(player1, player2):
     screen.blit(controls1, (50, 50))
     screen.blit(controls2, (SCREEN_WIDTH - 250, 50))
 
+def show_goal_message(player1, player2):
+    # Determine who scored
+    if player1.score > player2.score:
+        message = "Player 1 Scores!"
+        color = RED
+    else:
+        message = "Player 2 Scores!"
+        color = BLUE
+    
+    # Draw message
+    goal_text = font.render(message, True, color)
+    screen.blit(goal_text, (SCREEN_WIDTH // 2 - goal_text.get_width() // 2, SCREEN_HEIGHT // 2 - 50))
+    pygame.display.update()
+
 def show_winner(player1, player2):
     screen.fill(BLACK)
     if player1.score >= WINNING_SCORE:
@@ -254,8 +296,8 @@ def show_winner(player1, player2):
 
 def main():
     # Create players
-    player1 = Player(100, SCREEN_HEIGHT - PLAYER_HEIGHT, RED, True)
-    player2 = Player(SCREEN_WIDTH - 100 - PLAYER_WIDTH, SCREEN_HEIGHT - PLAYER_HEIGHT, BLUE, False)
+    player1 = Player(100, SCREEN_HEIGHT - PLAYER_BOTTOM_RADIUS, RED, True)
+    player2 = Player(SCREEN_WIDTH - 100, SCREEN_HEIGHT - PLAYER_BOTTOM_RADIUS, BLUE, False)
     
     # Create ball
     ball = Ball()
