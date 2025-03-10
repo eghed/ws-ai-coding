@@ -21,13 +21,13 @@ Some of the roles the AI can take and the respective tasks it can assist with:
 
 # Prerequisites
 
-LLM accounts:
+**LLM accounts**:
 - Create a free account, if you don't have one yet, on one or more of:
     - https://chatgpt.com/
     - https://claude.ai/
 - (optional, highly recommended) Install Cursor IDE: https://www.cursor.com/
 
-Python prerequisites:
+**Python prerequisites**:
 - Install python: https://www.python.org/downloads/
 - Install `venv`
 - Clone this repository
@@ -61,7 +61,7 @@ python -m streamlit run .\src\weather.py
 
 and navigating to `localhost:8501` in your browser, you should see approximately the following:
 
-[[./doc/first_version.png]]
+![First version of the weather app](./doc/first_version.png)
 
 # Workshop Schedule
 
