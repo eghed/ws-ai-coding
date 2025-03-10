@@ -55,7 +55,7 @@ def search_location(query: str) -> List[Dict[str, Any]]:
             return response.json()
         return []
     except Exception as e:
-        st.error(f"Error searching for location: {e}")
+        st.sidebar.error(f"Error searching for location: {e}")
         return []
 
 def get_weather_data(latitude: float, longitude: float) -> Dict[str, Any]:
@@ -134,16 +134,21 @@ def format_date(date_str: str) -> str:
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     return date_obj.strftime("%a, %b %d")
 
-def display_weather_data(data: Dict[str, Any]) -> None:
+def display_weather_data(data: Dict[str, Any], location_name: str = "") -> None:
     """
     Display weather data in the Streamlit app.
     
     Args:
         data: Weather data from the API
+        location_name: Name of the location for display purposes
     """
     if "current_weather" in data:
+        # Display location name if provided
+        if location_name:
+            st.header(f"Weather Forecast for {location_name}")
+        
         # Display current weather
-        st.header("Current Weather")
+        st.subheader("Current Weather")
         weather = data["current_weather"]
         
         col1, col2, col3 = st.columns(3)
@@ -157,7 +162,7 @@ def display_weather_data(data: Dict[str, Any]) -> None:
         
         # Display 7-day forecast
         if "daily" in data:
-            st.header("7-Day Forecast")
+            st.subheader("7-Day Forecast")
             
             daily = data["daily"]
             dates = daily["time"]
@@ -197,7 +202,7 @@ def display_weather_data(data: Dict[str, Any]) -> None:
         
         # Display hourly precipitation probability
         if "hourly" in data:
-            st.header("Hourly Precipitation Probability")
+            st.subheader("Hourly Precipitation Probability")
             
             hourly = data["hourly"]
             hourly_times = hourly["time"]
@@ -245,9 +250,7 @@ def display_weather_data(data: Dict[str, Any]) -> None:
 
 def main() -> None:
     """Main function to run the Streamlit weather application."""
-    # Initialize session state for preserving search results
-    if 'search_performed' not in st.session_state:
-        st.session_state.search_performed = False
+    # Initialize session state for preserving data between reruns
     if 'locations' not in st.session_state:
         st.session_state.locations = []
     if 'search_query' not in st.session_state:
@@ -256,115 +259,133 @@ def main() -> None:
         st.session_state.selected_location_index = 0
     if 'weather_data' not in st.session_state:
         st.session_state.weather_data = None
+    if 'location_name' not in st.session_state:
+        st.session_state.location_name = ""
+    if 'current_lat' not in st.session_state:
+        st.session_state.current_lat = None
+    if 'current_lon' not in st.session_state:
+        st.session_state.current_lon = None
+    if 'first_load' not in st.session_state:
+        st.session_state.first_load = True
     
-    st.title("Weather App using Open-Meteo API")
+    # Main title
+    st.title("Weather Forecast")
     
-    # Get user's location
-    auto_lat, auto_lon, auto_city, auto_country = get_location()
+    # Sidebar for all controls
+    st.sidebar.title("Location Settings")
     
-    # Create tabs for different input methods
-    location_tab, search_tab = st.tabs(["Current Location", "Search by City"])
-    
-    with location_tab:
-        # Use detected location or allow manual input
+    # Get user's location on first load
+    if st.session_state.first_load:
+        auto_lat, auto_lon, auto_city, auto_country = get_location()
         if auto_lat and auto_lon and auto_city and auto_country:
-            location_info = f"{auto_city}, {auto_country}"
-            st.success(f"Detected location: {location_info}")
-            use_current_location = st.checkbox("Use my current location", value=True)
+            st.session_state.current_lat = auto_lat
+            st.session_state.current_lon = auto_lon
+            st.session_state.location_name = f"{auto_city}, {auto_country}"
             
-            if use_current_location:
-                st.info(f"Using coordinates: Lat {auto_lat:.6f}, Lon {auto_lon:.6f}")
-                latitude = auto_lat
-                longitude = auto_lon
-                
-                if st.button("Get Weather for Current Location"):
-                    with st.spinner(f"Fetching weather data for {location_info}..."):
-                        data = get_weather_data(latitude, longitude)
-                        display_weather_data(data)
-            else:
-                st.info("Enter coordinates manually below")
-                latitude = st.number_input("Enter Latitude:", value=auto_lat, format="%.6f")
-                longitude = st.number_input("Enter Longitude:", value=auto_lon, format="%.6f")
-                
-                if st.button("Get Weather for Coordinates"):
-                    with st.spinner("Fetching weather data..."):
-                        data = get_weather_data(latitude, longitude)
-                        display_weather_data(data)
-        else:
-            st.warning("Could not detect your location automatically.")
-            st.info("Enter coordinates manually below")
-            latitude = st.number_input("Enter Latitude:", value=0.0, format="%.6f")
-            longitude = st.number_input("Enter Longitude:", value=0.0, format="%.6f")
-            
-            if st.button("Get Weather for Coordinates"):
-                if latitude != 0.0 or longitude != 0.0:  # Basic validation
-                    with st.spinner("Fetching weather data..."):
-                        data = get_weather_data(latitude, longitude)
-                        display_weather_data(data)
-                else:
-                    st.error("Please enter valid latitude and longitude.")
+            # Fetch weather data for detected location
+            with st.spinner(f"Fetching weather data for {st.session_state.location_name}..."):
+                st.session_state.weather_data = get_weather_data(auto_lat, auto_lon)
+        
+        st.session_state.first_load = False
     
-    with search_tab:
-        st.subheader("Search by City Name")
+    # Display current location information in sidebar
+    if st.session_state.current_lat and st.session_state.current_lon:
+        st.sidebar.success(f"Current location: {st.session_state.location_name}")
+        st.sidebar.info(f"Coordinates: Lat {st.session_state.current_lat:.6f}, Lon {st.session_state.current_lon:.6f}")
+    
+    # Location selection method
+    location_method = st.sidebar.radio(
+        "Choose location method:",
+        ["Current Location", "Search by City", "Enter Coordinates"]
+    )
+    
+    # Handle different location selection methods
+    if location_method == "Current Location":
+        auto_lat, auto_lon, auto_city, auto_country = get_location()
+        if auto_lat and auto_lon and auto_city and auto_country:
+            st.sidebar.success(f"Detected: {auto_city}, {auto_country}")
+            if st.sidebar.button("Use This Location"):
+                st.session_state.current_lat = auto_lat
+                st.session_state.current_lon = auto_lon
+                st.session_state.location_name = f"{auto_city}, {auto_country}"
+                
+                with st.spinner(f"Fetching weather data for {st.session_state.location_name}..."):
+                    st.session_state.weather_data = get_weather_data(auto_lat, auto_lon)
+        else:
+            st.sidebar.warning("Could not detect your location automatically.")
+            st.sidebar.info("Please use another method to select a location.")
+    
+    elif location_method == "Search by City":
+        st.sidebar.subheader("Search by City Name")
+        search_query = st.sidebar.text_input(
+            "Enter city name (e.g., 'New York', 'London, UK')", 
+            value=st.session_state.search_query
+        )
         
-        # Search input and button
-        search_query = st.text_input("Enter city name (e.g., 'New York', 'London, UK')", 
-                                     value=st.session_state.search_query)
-        
-        search_col1, search_col2 = st.columns([1, 3])
-        with search_col1:
-            search_clicked = st.button("Search Location")
-        
-        # If search button is clicked, perform the search
-        if search_clicked and search_query:
-            with st.spinner(f"Searching for '{search_query}'..."):
+        if st.sidebar.button("Search"):
+            if search_query:
                 st.session_state.locations = search_location(search_query)
-                st.session_state.search_performed = True
                 st.session_state.search_query = search_query
-                st.session_state.weather_data = None  # Reset weather data
+                
+                if st.session_state.locations:
+                    st.sidebar.success(f"Found {len(st.session_state.locations)} locations")
+                else:
+                    st.sidebar.error(f"No locations found matching '{search_query}'")
         
-        # If search has been performed, show results
-        if st.session_state.search_performed and st.session_state.locations:
-            st.success(f"Found {len(st.session_state.locations)} locations matching '{st.session_state.search_query}'")
-            
-            # Create a list of location options for the user to select
+        # Display search results if available
+        if st.session_state.locations:
             location_options = []
             for loc in st.session_state.locations:
                 display_name = loc.get("display_name", "Unknown location")
-                lat = float(loc.get("lat", 0))
-                lon = float(loc.get("lon", 0))
-                location_options.append(f"{display_name} (Lat: {lat:.4f}, Lon: {lon:.4f})")
+                location_options.append(display_name)
             
-            # Display the dropdown with the location options
-            selected_location = st.selectbox(
+            selected_location = st.sidebar.selectbox(
                 "Select a location:", 
                 location_options,
                 index=st.session_state.selected_location_index
             )
             
-            # Update the selected location index in session state
             if selected_location:
                 st.session_state.selected_location_index = location_options.index(selected_location)
-            
-            # Get weather button
-            get_weather_clicked = st.button("Get Weather for Selected Location")
-            
-            # If get weather button is clicked or weather data already exists, display it
-            if get_weather_clicked:
-                selected_index = st.session_state.selected_location_index
-                selected_lat = float(st.session_state.locations[selected_index]["lat"])
-                selected_lon = float(st.session_state.locations[selected_index]["lon"])
-                location_name = selected_location.split(' (Lat')[0]
+                selected_loc = st.session_state.locations[st.session_state.selected_location_index]
+                selected_lat = float(selected_loc["lat"])
+                selected_lon = float(selected_loc["lon"])
                 
-                with st.spinner(f"Fetching weather data for {location_name}..."):
-                    st.session_state.weather_data = get_weather_data(selected_lat, selected_lon)
-            
-            # Display weather data if it exists
-            if st.session_state.weather_data:
-                display_weather_data(st.session_state.weather_data)
+                if st.sidebar.button("Use Selected Location"):
+                    st.session_state.current_lat = selected_lat
+                    st.session_state.current_lon = selected_lon
+                    st.session_state.location_name = selected_location
+                    
+                    with st.spinner(f"Fetching weather data for {selected_location}..."):
+                        st.session_state.weather_data = get_weather_data(selected_lat, selected_lon)
+    
+    elif location_method == "Enter Coordinates":
+        st.sidebar.subheader("Enter Exact Coordinates")
+        
+        default_lat = st.session_state.current_lat if st.session_state.current_lat else 0.0
+        default_lon = st.session_state.current_lon if st.session_state.current_lon else 0.0
+        
+        latitude = st.sidebar.number_input("Latitude:", value=default_lat, format="%.6f")
+        longitude = st.sidebar.number_input("Longitude:", value=default_lon, format="%.6f")
+        location_name = st.sidebar.text_input("Location Name (optional):", 
+                                             value="" if location_method != "Current Location" else st.session_state.location_name)
+        
+        if st.sidebar.button("Use These Coordinates"):
+            if latitude != 0.0 or longitude != 0.0:  # Basic validation
+                st.session_state.current_lat = latitude
+                st.session_state.current_lon = longitude
+                st.session_state.location_name = location_name if location_name else f"Lat: {latitude}, Lon: {longitude}"
                 
-        elif st.session_state.search_performed:
-            st.error(f"No locations found matching '{st.session_state.search_query}'. Try a different search term.")
+                with st.spinner(f"Fetching weather data..."):
+                    st.session_state.weather_data = get_weather_data(latitude, longitude)
+            else:
+                st.sidebar.error("Please enter valid coordinates.")
+    
+    # Display weather data in the main area if available
+    if st.session_state.weather_data:
+        display_weather_data(st.session_state.weather_data, st.session_state.location_name)
+    elif not st.session_state.first_load:  # Don't show this message on first load
+        st.info("Select a location to view weather forecast.")
 
 if __name__ == "__main__":
     main()
