@@ -6,6 +6,7 @@ import plotly.express as px
 from datetime import datetime
 import numpy as np
 from typing import Optional, Tuple, Dict, Any, List
+import math
 
 def get_location() -> Tuple[Optional[float], Optional[float], Optional[str], Optional[str]]:
     """
@@ -72,12 +73,98 @@ def get_weather_data(latitude: float, longitude: float) -> Dict[str, Any]:
     url = (f"https://api.open-meteo.com/v1/forecast"
            f"?latitude={latitude}&longitude={longitude}"
            f"&current_weather=true"
-           f"&hourly=temperature_2m,relativehumidity_2m,precipitation_probability,cloudcover,windspeed_10m"
-           f"&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_hours,windspeed_10m_max")
+           f"&hourly=temperature_2m,relativehumidity_2m,precipitation_probability,cloudcover,windspeed_10m,winddirection_10m"
+           f"&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_hours,windspeed_10m_max,winddirection_10m_dominant")
     
     response = requests.get(url)
     data = response.json()
     return data
+
+def get_temp_color(temp: float) -> str:
+    """
+    Get a color for a temperature value based on a gradient.
+    
+    Args:
+        temp: Temperature in Celsius
+        
+    Returns:
+        str: Hex color code
+    """
+    if temp <= -20:
+        return "#0000CC"  # Dark blue
+    elif temp <= 0:
+        # Gradient from dark blue to light blue
+        ratio = (temp + 20) / 20
+        return f"#{0:02x}{0:02x}{int(204 + ratio * (255 - 204)):02x}"
+    elif temp <= 10:
+        # Gradient from light blue to green
+        ratio = temp / 10
+        return f"#{0:02x}{int(ratio * 204):02x}{255 - int(ratio * 51):02x}"
+    elif temp <= 20:
+        # Gradient from green to yellow
+        ratio = (temp - 10) / 10
+        return f"#{int(ratio * 255):02x}{204:02x}{0:02x}"
+    elif temp <= 30:
+        # Gradient from yellow to red
+        ratio = (temp - 20) / 10
+        return f"#{255:02x}{int(204 - ratio * 204):02x}{0:02x}"
+    else:
+        return "#FF0000"  # Red
+
+def format_temp(temp: float) -> str:
+    """
+    Format temperature with color based on value.
+    
+    Args:
+        temp: Temperature in Celsius
+        
+    Returns:
+        str: HTML formatted temperature string
+    """
+    color = get_temp_color(temp)
+    return f"<span style='color:{color};font-weight:bold'>{temp:.1f}°C</span>"
+
+def weather_code_to_emoji(code: int) -> str:
+    """
+    Convert weather code to appropriate emoji.
+    
+    Args:
+        code: The weather code from the API
+        
+    Returns:
+        str: Weather emoji
+    """
+    weather_emojis = {
+        0: "☀️",  # Clear sky
+        1: "🌤️",  # Mainly clear
+        2: "⛅",  # Partly cloudy
+        3: "☁️",  # Overcast
+        45: "🌫️",  # Fog
+        48: "🌫️❄️",  # Depositing rime fog
+        51: "🌦️",  # Light drizzle
+        53: "🌦️",  # Moderate drizzle
+        55: "🌧️",  # Dense drizzle
+        56: "🌨️",  # Light freezing drizzle
+        57: "🌨️",  # Dense freezing drizzle
+        61: "🌧️",  # Slight rain
+        63: "🌧️",  # Moderate rain
+        65: "🌧️",  # Heavy rain
+        66: "🌨️",  # Light freezing rain
+        67: "🌨️",  # Heavy freezing rain
+        71: "❄️",  # Slight snow fall
+        73: "❄️",  # Moderate snow fall
+        75: "❄️",  # Heavy snow fall
+        77: "🌨️",  # Snow grains
+        80: "🌦️",  # Slight rain showers
+        81: "🌧️",  # Moderate rain showers
+        82: "⛈️",  # Violent rain showers
+        85: "🌨️",  # Slight snow showers
+        86: "🌨️",  # Heavy snow showers
+        95: "⛈️",  # Thunderstorm
+        96: "⛈️",  # Thunderstorm with slight hail
+        99: "⛈️"   # Thunderstorm with heavy hail
+    }
+    return weather_emojis.get(code, "❓")
 
 def weather_code_to_description(code: int) -> str:
     """
@@ -121,6 +208,40 @@ def weather_code_to_description(code: int) -> str:
     }
     return weather_codes.get(code, f"Unknown ({code})")
 
+def get_wind_direction_arrow(degrees: float) -> str:
+    """
+    Convert wind direction in degrees to arrow symbol.
+    
+    Args:
+        degrees: Wind direction in degrees (0-360)
+        
+    Returns:
+        str: Arrow symbol pointing in wind direction
+    """
+    # 8 arrows: ↑ ↗ → ↘ ↓ ↙ ← ↖
+    arrows = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"]
+    idx = round(degrees / 45) % 8
+    return arrows[idx]
+
+def get_precipitation_indicator(amount: float) -> str:
+    """
+    Get precipitation indicator based on amount.
+    
+    Args:
+        amount: Precipitation amount in mm
+        
+    Returns:
+        str: String with 0-3 droplet emojis
+    """
+    if amount <= 0:
+        return ""
+    elif amount < 2:
+        return " 💧"
+    elif amount < 10:
+        return " 💧💧"
+    else:
+        return " 💧💧💧"
+
 def format_date(date_str: str) -> str:
     """
     Format date string to a more readable format.
@@ -147,20 +268,28 @@ def display_weather_data(data: Dict[str, Any], location_name: str = "") -> None:
         if location_name:
             st.header(f"Weather Forecast for {location_name}")
         
-        # Display current weather
+        # Display current weather (spans two columns)
         st.subheader("Current Weather")
         weather = data["current_weather"]
         
+        # Get emoji for current weather
+        weather_emoji = weather_code_to_emoji(weather['weathercode'])
+        weather_desc = weather_code_to_description(weather['weathercode'])
+        
+        # Get wind direction arrow
+        wind_arrow = get_wind_direction_arrow(weather['winddirection'])
+        
+        # Create a larger, more prominent current weather display
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Temperature", f"{weather['temperature']}°C")
+            temp_html = format_temp(weather['temperature'])
+            st.markdown(f"<div style='font-size:24px'><strong>Temperature:</strong><br/>{temp_html}</div>", unsafe_allow_html=True)
         with col2:
-            st.metric("Wind Speed", f"{weather['windspeed']} km/h")
+            st.markdown(f"<div style='font-size:24px'><strong>Wind:</strong><br/>{wind_arrow} {weather['windspeed']} km/h</div>", unsafe_allow_html=True)
         with col3:
-            weather_desc = weather_code_to_description(weather['weathercode'])
-            st.metric("Condition", weather_desc)
+            st.markdown(f"<div style='font-size:24px'><strong>Condition:</strong><br/>{weather_emoji} {weather_desc}</div>", unsafe_allow_html=True)
         
-        # Display 7-day forecast
+        # Display 7-day forecast (spans two columns)
         if "daily" in data:
             st.subheader("7-Day Forecast")
             
@@ -170,81 +299,209 @@ def display_weather_data(data: Dict[str, Any], location_name: str = "") -> None:
             min_temps = daily["temperature_2m_min"]
             weather_codes = daily["weathercode"]
             wind_speeds = daily["windspeed_10m_max"]
+            wind_directions = daily.get("winddirection_10m_dominant", [0] * len(dates))
             precip_sum = daily["precipitation_sum"]
             
-            # Create a dataframe for the daily forecast
-            daily_data = []
+            # Create a transposed table with dates as columns
+            # First, prepare the data for each day
+            days_data = []
             for i in range(len(dates)):
-                daily_data.append({
-                    "Date": format_date(dates[i]),
-                    "Max Temp": f"{max_temps[i]}°C",
-                    "Min Temp": f"{min_temps[i]}°C",
-                    "Condition": weather_code_to_description(weather_codes[i]),
-                    "Wind": f"{wind_speeds[i]} km/h",
-                    "Precipitation": f"{precip_sum[i]} mm"
+                # Format temperatures with color
+                max_temp_html = format_temp(max_temps[i])
+                min_temp_html = format_temp(min_temps[i])
+                
+                # Get emoji for weather condition
+                weather_emoji = weather_code_to_emoji(weather_codes[i])
+                
+                # Get wind direction arrow
+                wind_arrow = get_wind_direction_arrow(wind_directions[i])
+                
+                # Get precipitation indicator
+                precip_indicator = get_precipitation_indicator(precip_sum[i])
+                
+                days_data.append({
+                    "date": format_date(dates[i]),
+                    "max_temp": max_temp_html,
+                    "min_temp": min_temp_html,
+                    "condition": f"{weather_emoji}",
+                    "wind": f"{wind_arrow} {wind_speeds[i]}",
+                    "precip": f"{precip_sum[i]}{precip_indicator}"
                 })
             
-            # Display daily forecast as a table
-            st.dataframe(pd.DataFrame(daily_data), use_container_width=True)
+            # Create HTML for the transposed table
+            html_table = """
+            <table style="width:100%; text-align:center; border-collapse: collapse;">
+                <tr>
+                    <th style="padding:8px; border-bottom:1px solid #ddd;">Date</th>
+            """
             
-            # Create temperature chart
-            temp_fig = px.line(
-                x=[format_date(d) for d in dates],
-                y=[max_temps, min_temps],
-                labels={"x": "Date", "y": "Temperature (°C)"},
-                title="7-Day Temperature Forecast",
-                markers=True
-            )
-            temp_fig.update_layout(legend_title_text="")
-            temp_fig.data[0].name = "Max Temperature"
-            temp_fig.data[1].name = "Min Temperature"
-            st.plotly_chart(temp_fig, use_container_width=True)
-        
-        # Display hourly precipitation probability
-        if "hourly" in data:
-            st.subheader("Hourly Precipitation Probability")
+            # Add date headers
+            for day in days_data:
+                html_table += f"<th style='padding:8px; border-bottom:1px solid #ddd;'>{day['date']}</th>"
             
-            hourly = data["hourly"]
-            hourly_times = hourly["time"]
-            precip_prob = hourly["precipitation_probability"]
-            cloud_cover = hourly["cloudcover"]
+            html_table += """
+                </tr>
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #ddd;"><strong>Condition</strong></td>
+            """
             
-            # Create a dataframe for the hourly data
-            hourly_df = pd.DataFrame({
-                "Time": [datetime.fromisoformat(t) for t in hourly_times],
-                "Precipitation Probability": precip_prob,
-                "Cloud Cover": cloud_cover
-            })
+            # Add condition row
+            for day in days_data:
+                html_table += f"<td style='padding:8px; border-bottom:1px solid #ddd; font-size:24px;'>{day['condition']}</td>"
             
-            # Create precipitation probability chart
-            precip_fig = px.bar(
-                hourly_df,
-                x="Time",
-                y="Precipitation Probability",
-                title="Hourly Precipitation Probability (%)",
-                color_discrete_sequence=["#1E88E5"]
-            )
-            precip_fig.update_layout(
-                xaxis_title="Date & Time",
-                yaxis_title="Probability (%)",
-                yaxis_range=[0, 100]
-            )
-            st.plotly_chart(precip_fig, use_container_width=True)
+            html_table += """
+                </tr>
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #ddd;"><strong>Max Temp</strong></td>
+            """
             
-            # Create cloud cover chart
-            cloud_fig = px.line(
-                hourly_df,
-                x="Time",
-                y="Cloud Cover",
-                title="Hourly Cloud Cover (%)",
-                color_discrete_sequence=["#7E57C2"]
-            )
-            cloud_fig.update_layout(
-                xaxis_title="Date & Time",
-                yaxis_title="Cloud Cover (%)",
-                yaxis_range=[0, 100]
-            )
-            st.plotly_chart(cloud_fig, use_container_width=True)
+            # Add max temp row
+            for day in days_data:
+                html_table += f"<td style='padding:8px; border-bottom:1px solid #ddd;'>{day['max_temp']}</td>"
+            
+            html_table += """
+                </tr>
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #ddd;"><strong>Min Temp</strong></td>
+            """
+            
+            # Add min temp row
+            for day in days_data:
+                html_table += f"<td style='padding:8px; border-bottom:1px solid #ddd;'>{day['min_temp']}</td>"
+            
+            html_table += """
+                </tr>
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #ddd;"><strong>Wind (km/h)</strong></td>
+            """
+            
+            # Add wind row
+            for day in days_data:
+                html_table += f"<td style='padding:8px; border-bottom:1px solid #ddd;'>{day['wind']}</td>"
+            
+            html_table += """
+                </tr>
+                <tr>
+                    <td style="padding:8px; border-bottom:1px solid #ddd;"><strong>Precip (mm)</strong></td>
+            """
+            
+            # Add precipitation row
+            for day in days_data:
+                html_table += f"<td style='padding:8px; border-bottom:1px solid #ddd;'>{day['precip']}</td>"
+            
+            html_table += """
+                </tr>
+            </table>
+            """
+            
+            # Display the transposed table
+            st.markdown(html_table, unsafe_allow_html=True)
+            
+            # Create two columns for the charts
+            col_left, col_right = st.columns(2)
+            
+            # Left column: Temperature charts
+            with col_left:
+                # 7-day temperature chart
+                temp_fig = px.line(
+                    x=[format_date(d) for d in dates],
+                    y=[max_temps, min_temps],
+                    labels={"x": "Date", "y": "Temperature (°C)"},
+                    title="7-Day Temperature Forecast",
+                    markers=True
+                )
+                
+                # Customize the line colors
+                temp_fig.update_traces(
+                    line=dict(color="#FF5722"),
+                    selector=dict(name="wide_variable_0")
+                )
+                temp_fig.update_traces(
+                    line=dict(color="#2196F3"),
+                    selector=dict(name="wide_variable_1")
+                )
+                
+                # Set legend names
+                for i, name in enumerate(["Max Temperature", "Min Temperature"]):
+                    temp_fig.data[i].name = name
+                
+                temp_fig.update_layout(legend_title_text="")
+                st.plotly_chart(temp_fig, use_container_width=True)
+                
+                # Hourly temperature chart
+                if "hourly" in data:
+                    hourly = data["hourly"]
+                    hourly_times = hourly["time"]
+                    hourly_temps = hourly["temperature_2m"]
+                    
+                    # Create a dataframe for the hourly data
+                    hourly_df = pd.DataFrame({
+                        "Time": [datetime.fromisoformat(t) for t in hourly_times],
+                        "Temperature": hourly_temps
+                    })
+                    
+                    # Create temperature chart
+                    hourly_temp_fig = px.line(
+                        hourly_df,
+                        x="Time",
+                        y="Temperature",
+                        title="Hourly Temperature (°C)",
+                        color_discrete_sequence=["#FF5722"]
+                    )
+                    hourly_temp_fig.update_layout(
+                        xaxis_title="Date & Time",
+                        yaxis_title="Temperature (°C)"
+                    )
+                    st.plotly_chart(hourly_temp_fig, use_container_width=True)
+            
+            # Right column: Precipitation and cloud cover charts
+            with col_right:
+                if "hourly" in data:
+                    hourly = data["hourly"]
+                    hourly_times = hourly["time"]
+                    precip_prob = hourly["precipitation_probability"]
+                    cloud_cover = hourly["cloudcover"]
+                    
+                    # Create a dataframe for the hourly data if not already created
+                    if 'hourly_df' not in locals():
+                        hourly_df = pd.DataFrame({
+                            "Time": [datetime.fromisoformat(t) for t in hourly_times],
+                            "Precipitation Probability": precip_prob,
+                            "Cloud Cover": cloud_cover
+                        })
+                    else:
+                        hourly_df["Precipitation Probability"] = precip_prob
+                        hourly_df["Cloud Cover"] = cloud_cover
+                    
+                    # Create precipitation probability chart
+                    precip_fig = px.bar(
+                        hourly_df,
+                        x="Time",
+                        y="Precipitation Probability",
+                        title="Hourly Precipitation Probability (%)",
+                        color_discrete_sequence=["#1E88E5"]
+                    )
+                    precip_fig.update_layout(
+                        xaxis_title="Date & Time",
+                        yaxis_title="Probability (%)",
+                        yaxis_range=[0, 100]
+                    )
+                    st.plotly_chart(precip_fig, use_container_width=True)
+                    
+                    # Create cloud cover chart
+                    cloud_fig = px.line(
+                        hourly_df,
+                        x="Time",
+                        y="Cloud Cover",
+                        title="Hourly Cloud Cover (%)",
+                        color_discrete_sequence=["#7E57C2"]
+                    )
+                    cloud_fig.update_layout(
+                        xaxis_title="Date & Time",
+                        yaxis_title="Cloud Cover (%)",
+                        yaxis_range=[0, 100]
+                    )
+                    st.plotly_chart(cloud_fig, use_container_width=True)
     else:
         st.error("Weather data not available for the provided coordinates.")
 
@@ -268,8 +525,15 @@ def main() -> None:
     if 'first_load' not in st.session_state:
         st.session_state.first_load = True
     
+    # Set page config
+    st.set_page_config(
+        page_title="Weather Forecast",
+        page_icon="🌤️",
+        layout="wide"
+    )
+    
     # Main title
-    st.title("Weather Forecast")
+    st.title("🌤️ Weather Forecast")
     
     # Sidebar for all controls
     st.sidebar.title("Location Settings")
