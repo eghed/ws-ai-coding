@@ -84,7 +84,8 @@ Navigating to `localhost:8501` in your browser, you should see approximately the
 - 5 min: break
 
 - 5 min: third task introduction
-- 40 min: work in pairs
+- 35 min: work in pairs
+- 5 min: conclusions
 
 # Task instructions
 
