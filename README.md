@@ -28,10 +28,11 @@ Some of the roles the AI can take and the respective tasks it can assist with:
 - (optional, highly recommended) Install Cursor IDE: https://www.cursor.com/
 
 **Python prerequisites**:
+
 - Install python: https://www.python.org/downloads/
-- Install `venv`
+- Install `venv` by running `python -m pip install venv`
 - Clone this repository
-- In the root folder, run the following commands:
+- In the root folder, run the following commands to create the virtual environment, activate it and install the requirements:
 
 Unix/MacOS:
 ```bash
@@ -47,7 +48,7 @@ python -m venv venv
 pip install -r .\requirements.txt
 ```
 
-Test that the example works by running:
+While the virtual environment is activated, test that the example works by running:
 
 Unix/MacOS:
 ```bash
@@ -59,7 +60,7 @@ Windows:
 python -m streamlit run .\src\weather.py
 ```
 
-and navigating to `localhost:8501` in your browser, you should see approximately the following:
+Navigating to `localhost:8501` in your browser, you should see approximately the following:
 
 ![First version of the weather app](./doc/first_version.png)
 
