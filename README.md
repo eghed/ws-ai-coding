@@ -31,6 +31,7 @@ Some of the roles the AI can take and the respective tasks it can assist with:
 
 - Install python: https://www.python.org/downloads/
 - Install `venv` by running `python -m pip install venv`
+    - note: this will not work on some Linux distros, the correct way is to go via the system's package manager instead, eg. on Ubuntu: `sudo apt-get install python3-venv`
 - Clone this repository
 - In the root folder, run the following commands to create the virtual environment, activate it and install the requirements:
 
